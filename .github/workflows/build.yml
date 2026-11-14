@@ -1,0 +1,30 @@
+name: Build IPA
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build (unsigned)
+        run: |
+          xcodebuild -project WeatherScope.xcodeproj -scheme WeatherScope \
+            -configuration Release -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+            build -derivedDataPath build
+
+      - name: Package IPA
+        run: |
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/WeatherScope.app Payload/
+          zip -r WeatherScope.ipa Payload
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WeatherScope-ipa
+          path: WeatherScope.ipa
