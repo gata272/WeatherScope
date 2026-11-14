@@ -78,13 +78,9 @@ final class WeatherStore: ObservableObject {
         isLoading = true
         errorMessage = ""
         defer { isLoading = false }
-        do {
-            main = try await WeatherService.fetchMain(place: p)
-        } catch {
-            errorMessage = "予報の取得に失敗: \(error.localizedDescription)"
-            return
-        }
-        async let aq = try? WeatherService.fetchAirQuality(place: p)
+        // メイン予報と各モデルを並行して取得する（片方が遅くても、もう片方で表示できるように）
+        async let mainFetch = WeatherService.fetchMain(place: p)
+        async let aqFetch = try? WeatherService.fetchAirQuality(place: p)
         var collected: [(ModelSpec, ForecastResponse)] = []
         var failed: [String] = []
         await withTaskGroup(of: (ModelSpec, ForecastResponse?).self) { group in
@@ -97,7 +93,20 @@ final class WeatherStore: ObservableObject {
         }
         models = modelSpecs.compactMap { spec in collected.first { $0.0.id == spec.id } }
         failedModels = failed
-        airQuality = await aq
-        fetchedAt = Date()
+        do {
+            main = try await mainFetch
+        } catch {
+            // best_match がタイムアウト等で失敗したら、取得できたモデル（気象庁→ECMWFの順）で代用表示する
+            let priority = ["jma_seamless", "ecmwf_ifs025", "gfs_seamless", "icon_seamless", "gem_seamless", "ukmo_seamless", "meteofrance_seamless"]
+            let fallback = priority.compactMap { id in collected.first { $0.0.id == id } }.first
+            if let fallback {
+                main = fallback.forecast
+                errorMessage = "\(p.name): メイン予報の取得に失敗したため、\(fallback.spec.label)の予報で代用しています（\(error.localizedDescription)）"
+            } else {
+                errorMessage = "\(p.name)の予報の取得に失敗: \(error.localizedDescription)"
+            }
+        }
+        airQuality = await aqFetch
+        if main != nil { fetchedAt = Date() }
     }
 }

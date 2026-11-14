@@ -6,6 +6,7 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             Form {
+                placeSection
                 searchSection
                 presetsSection
                 favoritesSection
@@ -13,7 +14,7 @@ struct ContentView: View {
                     Section {
                         HStack {
                             ProgressView()
-                            Text("複数の気象モデルから予報を取得中…")
+                            Text("\(store.place.name)の予報を複数の気象モデルから取得中…")
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                         }
@@ -37,7 +38,7 @@ struct ContentView: View {
                     sourceSection(main)
                 }
             }
-            .navigationTitle("天気予報プロ")
+            .navigationTitle("天気予報")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     HStack {
@@ -60,6 +61,35 @@ struct ContentView: View {
             }
             .refreshable { await store.refresh() }
         }
+    }
+
+    // MARK: - 表示中の場所
+
+    private var placeSection: some View {
+        Section {
+            HStack(spacing: 10) {
+                Image(systemName: "mappin.circle.fill")
+                    .font(.title2)
+                    .foregroundStyle(.red)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(store.place.name).font(.headline)
+                    if !store.place.subtitle.isEmpty {
+                        Text(store.place.subtitle).font(.caption).foregroundStyle(.secondary)
+                    }
+                    Text("緯度 \(String(format: "%.4f", store.place.latitude)) / 経度 \(String(format: "%.4f", store.place.longitude))")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                if store.isLoading { ProgressView() }
+            }
+        } header: {
+            Text("表示中の場所")
+        }
+    }
+
+    private func isSelected(_ p: Place) -> Bool {
+        abs(p.latitude - store.place.latitude) < 0.001 && abs(p.longitude - store.place.longitude) < 0.001
     }
 
     // MARK: - 検索・お気に入り
@@ -99,7 +129,7 @@ struct ContentView: View {
                         Button {
                             Task { await store.select(city) }
                         } label: {
-                            Text(city.name)
+                            Label(city.name, systemImage: isSelected(city) ? "checkmark.circle.fill" : "mappin")
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
@@ -120,7 +150,7 @@ struct ContentView: View {
                                 Button {
                                     Task { await store.select(fav) }
                                 } label: {
-                                    Label(fav.name, systemImage: fav.id == store.place.id ? "mappin.circle.fill" : "mappin")
+                                    Label(fav.name, systemImage: isSelected(fav) ? "mappin.circle.fill" : "mappin")
                                 }
                                 .buttonStyle(.bordered)
                                 .controlSize(.small)

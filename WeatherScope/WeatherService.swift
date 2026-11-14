@@ -208,17 +208,42 @@ enum WeatherService {
         return c.url!
     }
 
+    /// 専用セッション: 応答待ちを長めに取り、接続が不安定なときは接続完了まで待つ
+    private static let session: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 60
+        config.timeoutIntervalForResource = 180
+        config.waitsForConnectivity = true
+        return URLSession(configuration: config)
+    }()
+
+    /// タイムアウト等の一次的な失敗は最大3回まで自動リトライする
     private static func get<T: Decodable>(_ url: URL) async throws -> T {
-        var req = URLRequest(url: url)
-        req.timeoutInterval = 30
-        let (data, response) = try await URLSession.shared.data(for: req)
-        let code = (response as? HTTPURLResponse)?.statusCode ?? 0
-        guard code == 200 else { throw WeatherError.http(code) }
-        do {
-            return try JSONDecoder().decode(T.self, from: data)
-        } catch {
-            throw WeatherError.decode(String(describing: error))
+        var lastError: Error?
+        for attempt in 0..<3 {
+            if attempt > 0 {
+                try? await Task.sleep(nanoseconds: UInt64(attempt) * 1_500_000_000)
+            }
+            do {
+                var req = URLRequest(url: url)
+                req.timeoutInterval = 60
+                let (data, response) = try await session.data(for: req)
+                let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+                guard code == 200 else { throw WeatherError.http(code) }
+                do {
+                    return try JSONDecoder().decode(T.self, from: data)
+                } catch {
+                    throw WeatherError.decode(String(describing: error))
+                }
+            } catch let e as WeatherError {
+                if case .decode = e { throw e }
+                if case .http(let code) = e, code < 500 { throw e }
+                lastError = e
+            } catch {
+                lastError = error
+            }
         }
+        throw lastError ?? WeatherError.http(0)
     }
 
     static func searchPlaces(_ query: String) async throws -> [Place] {
@@ -245,6 +270,7 @@ enum WeatherService {
     static func fetchModel(place: Place, model: String) async throws -> ForecastResponse {
         let url = makeURL("https://api.open-meteo.com/v1/forecast", [
             ("latitude", "\(place.latitude)"), ("longitude", "\(place.longitude)"),
+            ("current", "temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,weather_code,cloud_cover,pressure_msl,wind_speed_10m,wind_direction_10m,wind_gusts_10m"),
             ("hourly", "temperature_2m,precipitation_probability,precipitation"),
             ("daily", "temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum"),
             ("timezone", "auto"), ("forecast_days", "7"), ("models", model),
