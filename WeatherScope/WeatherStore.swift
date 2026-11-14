@@ -81,7 +81,7 @@ final class WeatherStore: ObservableObject {
         // メイン予報と各モデルを並行して取得する（片方が遅くても、もう片方で表示できるように）
         async let mainFetch = WeatherService.fetchMain(place: p)
         async let aqFetch = try? WeatherService.fetchAirQuality(place: p)
-        var collected: [(ModelSpec, ForecastResponse)] = []
+        var collected: [(spec: ModelSpec, forecast: ForecastResponse)] = []
         var failed: [String] = []
         await withTaskGroup(of: (ModelSpec, ForecastResponse?).self) { group in
             for spec in modelSpecs {
